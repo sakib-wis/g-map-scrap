@@ -1,18 +1,9 @@
 // G Map Scrap — Background Service Worker
-// Handles install events and cross-tab messaging relay.
-
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {
-    console.log('[G Map Scrap] Installed successfully.');
     chrome.storage.local.set({ gmapResults: [] });
+    console.log('[G Map Scrap] Installed.');
   }
 });
-
-// Relay messages from content scripts to popup (if open)
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  // Pass through to popup
-  chrome.runtime.sendMessage(msg).catch(() => {
-    // Popup may not be open; ignore error
-  });
-  return false;
-});
+// NOTE: Do NOT relay messages here. Content → popup messaging works directly.
+// Re-broadcasting causes duplicate log entries in the popup.
