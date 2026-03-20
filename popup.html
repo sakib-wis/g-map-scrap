@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>G Map Scrap</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0a0f1e;
+      --surface: #111827;
+      --surface2: #1a2236;
+      --border: #1f2d45;
+      --accent: #00d4aa;
+      --accent2: #0085ff;
+      --danger: #ff4d6d;
+      --warn: #ffb830;
+      --text: #e8edf5;
+      --muted: #6b7a99;
+      --green: #00d4aa;
+      --radius: 12px;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      width: 380px;
+      min-height: 520px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Syne', sans-serif;
+      overflow: hidden;
+    }
+
+    /* ── Header ── */
+    .header {
+      background: linear-gradient(135deg, #0a1628 0%, #0d1f3c 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 20px 14px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      position: relative;
+      overflow: hidden;
+    }
+    .header::before {
+      content: '';
+      position: absolute;
+      top: -30px; right: -30px;
+      width: 120px; height: 120px;
+      background: radial-gradient(circle, rgba(0,212,170,0.15) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .logo-wrap {
+      width: 40px; height: 40px;
+      background: linear-gradient(135deg, #00d4aa, #0085ff);
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      box-shadow: 0 4px 15px rgba(0,212,170,0.3);
+    }
+    .logo-wrap svg { width: 22px; height: 22px; }
+    .header-text { flex: 1; }
+    .app-name {
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: -0.3px;
+      background: linear-gradient(90deg, #00d4aa, #0085ff);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      line-height: 1;
+    }
+    .app-sub {
+      font-size: 10px;
+      color: var(--muted);
+      font-family: 'DM Mono', monospace;
+      margin-top: 3px;
+      letter-spacing: 0.5px;
+    }
+    .badge {
+      background: rgba(0,212,170,0.1);
+      border: 1px solid rgba(0,212,170,0.3);
+      color: var(--accent);
+      font-size: 9px;
+      font-family: 'DM Mono', monospace;
+      padding: 3px 7px;
+      border-radius: 20px;
+      letter-spacing: 0.5px;
+    }
+
+    /* ── Status Bar ── */
+    .status-bar {
+      margin: 14px 16px 0;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+      flex-shrink: 0;
+      transition: all 0.3s;
+    }
+    .status-dot.active { background: var(--accent); box-shadow: 0 0 6px var(--accent); animation: pulse 1.5s infinite; }
+    .status-dot.ready { background: var(--accent2); box-shadow: 0 0 6px var(--accent2); }
+    .status-dot.done { background: var(--green); }
+    .status-dot.error { background: var(--danger); }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    .status-text {
+      font-size: 12px;
+      color: var(--muted);
+      font-family: 'DM Mono', monospace;
+    }
+    .status-text span { color: var(--text); font-weight: 500; }
+
+    /* ── Stats Row ── */
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin: 10px 16px 0;
+    }
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      text-align: center;
+    }
+    .stat-num {
+      font-size: 22px;
+      font-weight: 800;
+      color: var(--text);
+      line-height: 1;
+      font-family: 'DM Mono', monospace;
+    }
+    .stat-num.highlight { color: var(--accent); }
+    .stat-label {
+      font-size: 9px;
+      color: var(--muted);
+      margin-top: 3px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    /* ── Progress ── */
+    .progress-wrap {
+      margin: 10px 16px 0;
+    }
+    .progress-bar-bg {
+      height: 4px;
+      background: var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent2), var(--accent));
+      border-radius: 4px;
+      width: 0%;
+      transition: width 0.4s ease;
+    }
+    .progress-label {
+      font-size: 10px;
+      color: var(--muted);
+      font-family: 'DM Mono', monospace;
+      margin-top: 5px;
+      text-align: right;
+    }
+
+    /* ── Controls ── */
+    .controls {
+      margin: 14px 16px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .btn {
+      width: 100%;
+      height: 44px;
+      border: none;
+      border-radius: var(--radius);
+      font-family: 'Syne', sans-serif;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s;
+      letter-spacing: 0.3px;
+      position: relative;
+      overflow: hidden;
+    }
+    .btn::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: rgba(255,255,255,0);
+      transition: background 0.15s;
+    }
+    .btn:hover::after { background: rgba(255,255,255,0.07); }
+    .btn:active { transform: scale(0.98); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #00d4aa, #00a8ff);
+      color: #000;
+      box-shadow: 0 4px 15px rgba(0,212,170,0.25);
+    }
+    .btn-primary:hover:not(:disabled) {
+      box-shadow: 0 6px 20px rgba(0,212,170,0.4);
+    }
+
+    .btn-stop {
+      background: linear-gradient(135deg, #ff4d6d, #c9184a);
+      color: #fff;
+      box-shadow: 0 4px 15px rgba(255,77,109,0.2);
+    }
+
+    .btn-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .btn-secondary {
+      background: var(--surface2);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover:not(:disabled) {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .btn-excel {
+      background: rgba(0,133,255,0.1);
+      color: var(--accent2);
+      border: 1px solid rgba(0,133,255,0.3);
+    }
+    .btn-excel:hover:not(:disabled) {
+      background: rgba(0,133,255,0.2);
+      box-shadow: 0 0 12px rgba(0,133,255,0.2);
+    }
+    .btn-csv {
+      background: rgba(0,212,170,0.1);
+      color: var(--accent);
+      border: 1px solid rgba(0,212,170,0.3);
+    }
+    .btn-csv:hover:not(:disabled) {
+      background: rgba(0,212,170,0.2);
+      box-shadow: 0 0 12px rgba(0,212,170,0.2);
+    }
+
+    /* ── Log ── */
+    .log-section {
+      margin: 12px 16px 0;
+    }
+    .log-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+    .log-title {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--muted);
+      font-family: 'DM Mono', monospace;
+    }
+    .log-clear {
+      font-size: 9px;
+      color: var(--muted);
+      cursor: pointer;
+      font-family: 'DM Mono', monospace;
+      background: none;
+      border: none;
+      padding: 0;
+    }
+    .log-clear:hover { color: var(--danger); }
+    .log-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      height: 100px;
+      overflow-y: auto;
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      line-height: 1.7;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+    .log-entry { display: flex; gap: 8px; }
+    .log-time { color: var(--muted); flex-shrink: 0; }
+    .log-msg { color: var(--text); }
+    .log-msg.success { color: var(--accent); }
+    .log-msg.warn { color: var(--warn); }
+    .log-msg.error { color: var(--danger); }
+
+    /* ── Footer ── */
+    .footer {
+      margin: 12px 16px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .footer-note {
+      font-size: 9px;
+      color: var(--muted);
+      font-family: 'DM Mono', monospace;
+    }
+    .footer-link {
+      font-size: 9px;
+      color: rgba(0,212,170,0.5);
+      font-family: 'DM Mono', monospace;
+    }
+
+    /* ── Alert ── */
+    .alert {
+      margin: 10px 16px 0;
+      background: rgba(255,184,48,0.08);
+      border: 1px solid rgba(255,184,48,0.25);
+      border-radius: 10px;
+      padding: 10px 13px;
+      font-size: 11px;
+      color: var(--warn);
+      font-family: 'DM Mono', monospace;
+      display: none;
+      line-height: 1.5;
+    }
+    .alert.show { display: block; }
+  </style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <div class="logo-wrap">
+    <svg viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M11 2C7.13 2 4 5.13 4 9c0 5.25 7 11 7 11s7-5.75 7-11c0-3.87-3.13-7-7-7z" fill="white" opacity="0.9"/>
+      <circle cx="11" cy="9" r="2.5" fill="#0a1628"/>
+      <path d="M2 19h18" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+      <circle cx="5" cy="19" r="1.5" fill="#00d4aa"/>
+      <circle cx="11" cy="19" r="1.5" fill="#00d4aa"/>
+      <circle cx="17" cy="19" r="1.5" fill="#00d4aa"/>
+    </svg>
+  </div>
+  <div class="header-text">
+    <div class="app-name">G Map Scrap</div>
+    <div class="app-sub">GOOGLE MAPS DATA EXTRACTOR</div>
+  </div>
+  <div class="badge">v1.0</div>
+</div>
+
+<!-- Alert -->
+<div class="alert" id="alertBox">⚠ Open Google Maps search results to start scraping.</div>
+
+<!-- Status -->
+<div class="status-bar">
+  <div class="status-dot" id="statusDot"></div>
+  <div class="status-text" id="statusText">Waiting for Google Maps search...</div>
+</div>
+
+<!-- Stats -->
+<div class="stats">
+  <div class="stat-card">
+    <div class="stat-num highlight" id="countFound">0</div>
+    <div class="stat-label">Scraped</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-num" id="countScrolls">0</div>
+    <div class="stat-label">Scrolls</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-num" id="countTime">0s</div>
+    <div class="stat-label">Elapsed</div>
+  </div>
+</div>
+
+<!-- Progress -->
+<div class="progress-wrap">
+  <div class="progress-bar-bg">
+    <div class="progress-bar-fill" id="progressBar"></div>
+  </div>
+  <div class="progress-label" id="progressLabel">Ready</div>
+</div>
+
+<!-- Controls -->
+<div class="controls">
+  <button class="btn btn-primary" id="btnStart">
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <path d="M3 2L11 7L3 12V2Z" fill="currentColor"/>
+    </svg>
+    Start Scraping
+  </button>
+
+  <button class="btn btn-stop" id="btnStop" disabled>
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <rect x="2" y="2" width="10" height="10" rx="1.5" fill="currentColor"/>
+    </svg>
+    Stop Scraping
+  </button>
+
+  <div class="btn-row">
+    <button class="btn btn-excel" id="btnExcel" disabled>
+      <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+        <rect x="1" y="1" width="11" height="11" rx="2" stroke="currentColor" stroke-width="1.2"/>
+        <path d="M4 4.5L6.5 8.5L9 4.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+      </svg>
+      Export Excel
+    </button>
+    <button class="btn btn-csv" id="btnCsv" disabled>
+      <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+        <path d="M2 3h9M2 6.5h9M2 10h5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+      </svg>
+      Export CSV
+    </button>
+  </div>
+
+  <button class="btn btn-secondary" id="btnClear">
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+      <path d="M2 2l9 9M11 2L2 11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+    </svg>
+    Clear Data
+  </button>
+</div>
+
+<!-- Log -->
+<div class="log-section">
+  <div class="log-header">
+    <span class="log-title">Activity Log</span>
+    <button class="log-clear" id="btnLogClear">clear</button>
+  </div>
+  <div class="log-box" id="logBox">
+    <div class="log-entry">
+      <span class="log-time">--:--</span>
+      <span class="log-msg">Ready. Navigate to Google Maps to begin.</span>
+    </div>
+  </div>
+</div>
+
+<!-- Footer -->
+<div class="footer">
+  <span class="footer-note">G MAP SCRAP © 2024</span>
+  <span class="footer-link">gmapscrap.dev</span>
+</div>
+
+<script src="popup.js"></script>
+</body>
+</html>
