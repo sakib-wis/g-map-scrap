@@ -177,9 +177,7 @@ const COLUMNS = [
   { key: "rating", label: "Rating (★)" },
   { key: "reviews", label: "Total Reviews" },
   { key: "status", label: "Open / Closed Now" },
-  { key: "priceLevel", label: "Price Level" },
   { key: "phone", label: "Phone Number" },
-  { key: "website", label: "Website" },
   { key: "address", label: "Full Address" },
   { key: "city", label: "City" },
   { key: "state", label: "State" },
@@ -340,10 +338,6 @@ btnExcel.addEventListener("click", () => {
         if (c.key === "url" && val) {
           return `<Cell ss:StyleID="${isEven ? "linkEven" : "link"}" ss:HRef="${esc(val)}"><Data ss:Type="String">View on Maps</Data></Cell>`;
         }
-        // Website column
-        if (c.key === "website" && val) {
-          return `<Cell ss:StyleID="${isEven ? "linkEven" : "link"}" ss:HRef="${esc(val)}"><Data ss:Type="String">${esc(val.replace(/^https?:\/\//, ""))}</Data></Cell>`;
-        }
         return `<Cell ss:StyleID="${base}"><Data ss:Type="String">${esc(val)}</Data></Cell>`;
       }).join("");
       return `<Row ss:Height="18">${cells}</Row>`;
@@ -402,7 +396,7 @@ chrome.runtime.onMessage.addListener((msg) => {
     if (results.length > 0) {
       log(`✓ Done! ${results.length} businesses extracted.`, "success");
       log(
-        `Fields: Name, Category, Rating, Reviews, Status, Phone, Website, Address, City, State, Pincode, Hours`,
+        `Fields: Name, Category, Rating, Reviews, Status, Phone, Address, City, State, Pincode, Hours`,
         "",
       );
     } else {

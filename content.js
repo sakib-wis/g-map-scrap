@@ -60,14 +60,8 @@
     let city = "",
       state = "",
       pincode = "",
-      phone = "",
       country = "India";
 
-    // 🔥 PHONE PARSE (Indian formats)
-    const phoneMatch = address.match(/(\+91[\s\-]?)?[6-9]\d{4}[\s\-]?\d{5}/);
-    if (phoneMatch) {
-      phone = phoneMatch[0].replace(/\s|-/g, "");
-    }
     // Pincode: 6-digit number in India
     const pinMatch = address.match(/\b(\d{6})\b/);
     if (pinMatch) pincode = pinMatch[1];
@@ -141,140 +135,74 @@
         }
       }
     }
-    return { city, state, pincode, country, phone };
+    return { city, state, pincode, country };
   }
 
   // ── Parse structured hours from aria-labels / text ─────────────────────────
   function parseHours(card) {
-    // Try to get full hours table from aria-label on hours button
-    const hoursBtn = card.querySelector(
-      '[aria-label*="Monday"], [aria-label*="Tuesday"], [aria-label*="hours" i]',
-    );
-    if (hoursBtn) {
-      const label = hoursBtn.getAttribute("aria-label") || "";
-      if (label.length > 10) return label.replace(/\s+/g, " ").trim();
+    const result = [];
+
+    // ✅ 1. Parse table (best source)
+    const rows = card.querySelectorAll("table tr");
+
+    if (rows.length > 0) {
+      rows.forEach((row) => {
+        const day = row.querySelector("td:first-child")?.innerText?.trim();
+        const time = row.querySelector("td:nth-child(2)")?.innerText?.trim();
+
+        if (day && time) {
+          result.push(`${day}: ${time}`);
+        }
+      });
+
+      if (result.length > 0) {
+        return result.join(" | "); // 🔥 flat string
+      }
     }
-    // Fallback: find open/closed text
-    const allText = Array.from(card.querySelectorAll("span, div"))
-      .map((el) => t(el))
-      .filter((s) => s.length > 2 && s.length < 100);
-    const hMatch = allText.find((s) =>
-      /\b(open|closed|closes|opens|24 hours)\b/i.test(s),
+
+    // ✅ 2. Fallback: aria-label buttons
+    const btns = card.querySelectorAll(
+      'button[aria-label*="am"], button[aria-label*="pm"]',
     );
-    return hMatch || "";
+
+    for (const btn of btns) {
+      const label = btn.getAttribute("aria-label");
+      if (label && label.length > 10) {
+        return label.replace(/\s+/g, " ").trim();
+      }
+    }
+
+    // ✅ 3. Fallback: open/close text
+    const text = Array.from(card.querySelectorAll("span, div"))
+      .map((el) => el.innerText?.trim())
+      .find((t) => /\b(open|closed|closes|opens|24 hours)\b/i.test(t || ""));
+
+    return text || "";
   }
 
   // ── Deep extract from a single card ───────────────────────────────────────
   function extractCard(card, url) {
     // Name
-    const nameEl = card.querySelector('h3, [role="heading"]');
+    const nameEl = card.querySelector(".DUwDvf");
     if (!nameEl) return null;
     const name = t(nameEl);
     if (!name || name.length < 2) return null;
-
-    // All text nodes for pattern matching
-    const allSpans = Array.from(card.querySelectorAll("span, div"));
-    const allTexts = allSpans
-      .map((el) => t(el))
-      .filter((s) => s.length > 0 && s.length < 250);
-
-    // Rating
-    let rating = "";
-    const rEl = card.querySelector(
-      '[aria-label*="stars"], [aria-label*="star"]',
-    );
-    if (rEl) {
-      const m = (rEl.getAttribute("aria-label") || "").match(/[\d.]+/);
-      if (m) rating = m[0];
-    }
-    if (!rating) {
-      const rs = allTexts.find((s) => /^[1-5]\.[0-9]$/.test(s.trim()));
-      if (rs) rating = rs.trim();
-    }
-
-    // Reviews count
-    let reviews = "";
-    const revEl = card.querySelector('[aria-label*="review"]');
-    if (revEl) {
-      const m = (revEl.getAttribute("aria-label") || "").match(/[\d,]+/);
-      if (m) reviews = m[0];
-    }
-    if (!reviews) {
-      const rs = allTexts.find((s) => /^\([\d,]+\)$/.test(s.trim()));
-      if (rs) reviews = rs.replace(/[()]/g, "").trim();
-    }
-
-    // Category
-    let category = "";
-    const leafSpans = allSpans.filter((el) => el.children.length === 0);
-    const catEl = leafSpans.find((el) => {
-      const txt = t(el);
-      return (
-        txt.length > 2 &&
-        txt.length < 50 &&
-        !txt.includes(name) &&
-        !/^\d+(\.\d+)?$/.test(txt) &&
-        !/^\([\d,]+\)$/.test(txt) &&
-        !/open|closed|closes|opens/i.test(txt) &&
-        txt !== rating &&
-        txt !== reviews &&
-        /[A-Za-z]/.test(txt)
-      );
-    });
-    if (catEl) category = t(catEl);
-
-    // Full address
-    let address = "";
-    const addrEl = card.querySelector('[data-dtype="d3adr"]');
-    if (addrEl) {
-      address = t(addrEl);
-    } else {
-      const addrMatch = allTexts.find(
-        (s) =>
-          /\d/.test(s) &&
-          s.length > 8 &&
-          s.length < 160 &&
-          (s.includes(",") ||
-            /\b(road|rd|street|st|nagar|sector|phase|block|colony|marg|ave|avenue|lane|near|plot|house|flat|building|tower|mall|bazaar|market|chowk|mohali|chandigarh|delhi|mumbai|bangalore|hyderabad|punjab|haryana)\b/i.test(
-              s,
-            )),
-      );
-      if (addrMatch) address = addrMatch;
-    }
-
+    // // Rating
+    let rating = t(card.querySelector(".F7nice span span"));
+    // // Reviews count
+    let reviews = t(card.querySelector('.F7nice span span span[role="img"]'));
+    // // Category
+    let category = t(card.querySelector(".DkEaL"));
+    let phone = t(card.querySelector('[data-item-id^="phone"] .Io6YTe'));
     // Parse address components
-    const { city, state, pincode, country, phone } = parseAddress(address);
-
-    // Website
-    let website = "";
-    const webEl = card.querySelector('a[href*="url?q="], a[data-url]');
-    if (webEl) {
-      const href = webEl.getAttribute("href") || "";
-      const m = href.match(/url\?q=([^&]+)/);
-      website = m
-        ? decodeURIComponent(m[1])
-        : href.startsWith("http")
-          ? href
-          : "";
-    }
-
-    // Hours (full string)
+    // Full address
+    let address = t(card.querySelector(".Io6YTe.fontBodyMedium.kR99db.fdkmkc"));
+    // Parse address components
+    const { city, state, pincode, country } = parseAddress(address);
+    // // Hours (full string)
     const hours = parseHours(card);
-
-    // Status (open/closed right now)
-    let status = "";
-    const statusMatch = allTexts.find(
-      (s) =>
-        /^(open now|closed|opens|closes|open 24 hours)/i.test(s.trim()) &&
-        s.length < 50,
-    );
-    if (statusMatch) status = statusMatch.trim();
-
-    // Price level (₹, ₹₹, $, $$)
-    let priceLevel = "";
-    const priceMatch = allTexts.find((s) => /^[₹$€£]{1,4}$/.test(s.trim()));
-    if (priceMatch) priceLevel = priceMatch.trim();
-
+    // // Status (open/closed right now)
+    let status = t(card.querySelector("span.ZDu9vd"));
     // Google Maps URL cleanup
     const cleanUrl = url
       ? url.split("?")[0] +
@@ -289,9 +217,7 @@
       rating,
       reviews,
       status,
-      priceLevel,
       phone,
-      website,
       address,
       city,
       state,
@@ -301,123 +227,58 @@
       url: cleanUrl,
     };
   }
+  //------------ WAIT FOR ELEMENT -----------------------
+  function waitForElement(selector, timeout = 10000) {
+    return new Promise((resolve, reject) => {
+      const interval = 300;
+      let elapsed = 0;
 
+      const timer = setInterval(() => {
+        const el = document.querySelector(selector);
+
+        if (el) {
+          clearInterval(timer);
+          resolve(el);
+        }
+
+        elapsed += interval;
+        if (elapsed >= timeout) {
+          clearInterval(timer);
+          reject("Element not found: " + selector);
+        }
+      }, interval);
+    });
+  }
   // ── Extract all cards on page ─────────────────────────────────────────────
-  function extractAll() {
+  async function extractAll() {
     const before = results.size;
-
     // Google Search local pack
     const links = Array.from(
       document.querySelectorAll(
         'a[href*="/maps/place/"], a[href*="google.com/maps/place"]',
       ),
     );
-    links.forEach((link) => {
+    for (const link of links.slice(before)) {
       try {
         const url = link.href || "";
-        let card = link;
-        let nameEl = null;
-        for (let i = 0; i < 8; i++) {
-          card = card.parentElement;
-          if (!card) break;
-          nameEl = card.querySelector('h3, [role="heading"]');
-          if (nameEl && t(nameEl).length > 1) break;
-          nameEl = null;
-        }
-        if (!nameEl) return;
+        link.click();
+        // wait for popup load
+        await waitForElement("h1.DUwDvf");
+        await delay(3000);
+        // always re-select AFTER load
+        const card = document.querySelector("div.bJzME.Hu9e2e.tTVLSc");
         const data = extractCard(card, url);
-        if (!data) return;
-        const key = data.name.toLowerCase().replace(/\s+/g, "");
-        if (!results.has(key)) results.set(key, data);
-      } catch (e) {}
-    });
-
-    // Google Maps standalone
-    const mapCards = Array.from(document.querySelectorAll(".Nv2PK, .bfdHYd"));
-    mapCards.forEach((card) => {
-      try {
-        const nameEl = card.querySelector(
-          '.qBF1Pd, .fontHeadlineSmall, [class*="fontHeadline"]',
-        );
-        if (!nameEl) return;
-        const name = t(nameEl);
-        if (!name) return;
-        const key = name.toLowerCase().replace(/\s+/g, "");
-        if (results.has(key)) return;
-
-        const rating = t(card.querySelector(".MW4etd, .ZkP5Je"));
-        const reviews = t(card.querySelector(".UY7F9, .e4rVHe")).replace(
-          /[()]/g,
-          "",
-        );
-        const category = t(card.querySelector(".W4Efsd span"));
-        const address = t(card.querySelector(".W4Efsd:last-of-type"));
-        const link = card.querySelector('a[href*="/maps/place/"]');
-        const url = link ? link.href : "";
-        const { city, state, pincode, country, phone } = parseAddress(address);
-        // NEW CODE
-        // Website
-        let website = "";
-        const webEl = card.querySelector('a[href*="url?q="], a[data-url]');
-        if (webEl) {
-          const href = webEl.getAttribute("href") || "";
-          const m = href.match(/url\?q=([^&]+)/);
-          website = m
-            ? decodeURIComponent(m[1])
-            : href.startsWith("http")
-              ? href
-              : "";
+        const key = data?.name?.toLowerCase().replace(/\s+/g, "");
+        if (!key) {
+          return;
         }
-        const allSpans = Array.from(card.querySelectorAll("span, div"));
-        const allTexts = allSpans
-          .map((el) => t(el))
-          .filter((s) => s.length > 0 && s.length < 250);
-
-        // Hours (full string)
-        const hours = parseHours(card);
-        // Status (open/closed right now)
-        let status = "";
-        const statusMatch = allTexts.find(
-          (s) =>
-            /^(open now|closed|opens|closes|open 24 hours)/i.test(s.trim()) &&
-            s.length < 50,
-        );
-        if (statusMatch) status = statusMatch.trim();        
-
-        // Price level (₹, ₹₹, $, $$)
-        let priceLevel = "";
-        const priceMatch = allTexts.find((s) => /^[₹$€£]{1,4}$/.test(s.trim()));
-        if (priceMatch) priceLevel = priceMatch.trim();
-
-        // Google Maps URL cleanup
-        const cleanUrl = url
-          ? url.split("?")[0] +
-            (url.includes("?")
-              ? "?" + url.split("?")[1].split("&").slice(0, 2).join("&")
-              : "")
-          : "";
-        // NEW CODE
-
-        results.set(key, {
-          name,
-          category,
-          rating,
-          reviews,
-          status,
-          priceLevel,
-          phone,
-          website,
-          address,
-          city,
-          state,
-          pincode,
-          country,
-          hours,
-          url,
-        });
-      } catch (e) {}
-    });
-
+        results.set(key, data);
+        // wait before next click (avoid blocking)
+        await delay(2000);
+      } catch (e) {
+        console.log("Error:", e);
+      }
+    }
     return results.size - before;
   }
 
@@ -439,7 +300,7 @@
       "",
     );
 
-    let gained = extractAll();
+    let gained = await extractAll();
     sendLog(`Initial: ${gained} records`, gained > 0 ? "success" : "warn");
     if (gained === 0)
       sendLog("Make sure Google shows the local business map panel.", "warn");
@@ -453,7 +314,7 @@
       scrolls++;
       await delay(1900);
 
-      const newGained = extractAll();
+      const newGained = await extractAll();
       sendProgress();
 
       if (newGained > 0) {
@@ -479,7 +340,7 @@
       }
     }
 
-    extractAll();
+    await extractAll();
     const data = Array.from(results.values());
     sendLog(`Complete! ${data.length} records with full details.`, "success");
     try {
