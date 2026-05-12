@@ -210,20 +210,37 @@
           ? "?" + url.split("?")[1].split("&").slice(0, 2).join("&")
           : "")
       : "";
+    const email = "";
+    const madid = "";
+    const [fn, ...ln] = name.split(" ");
+    const dob = "";
+    const doby = "";
+    const gen = "";
+    const age = "";
+    const uid = "";
+    const value = "";
+    const updatedPhone = phone.replace(/\D/g, "").replace(/^0+/, "");
 
     return {
-      name,
-      category,
-      rating,
-      reviews,
-      status,
-      phone,
-      address,
+      email1: email,
+      email2: "",
+      email3: "",
+      phone1: updatedPhone,
+      phone2: "",
+      phone3: "",
+      madid,
+      fn,
+      ln,
+      pincode,
       city,
       state,
-      pincode,
       country,
-      hours,
+      dob,
+      doby,
+      gen,
+      age,
+      uid,
+      value,
       url: cleanUrl,
     };
   }
@@ -268,7 +285,7 @@
         // always re-select AFTER load
         const card = document.querySelector("div.bJzME.Hu9e2e.tTVLSc");
         const data = extractCard(card, url);
-        const key = data?.name?.toLowerCase().replace(/\s+/g, "");
+        const key = data?.fn?.toLowerCase().replace(/\s+/g, "");
         if (!key) {
           return;
         }
