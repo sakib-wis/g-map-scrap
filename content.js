@@ -219,6 +219,7 @@
     const age = "";
     const uid = "";
     const value = "";
+    if (!phone && /^(?:\+91|0)?[6-9]\d{9}$/.test(phone)) return null;
     const updatedPhone = `91${phone.replace(/\D/g, "").replace(/^0+/, "")}`;
 
     return {
