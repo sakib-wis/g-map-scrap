@@ -219,7 +219,7 @@
     const age = "";
     const uid = "";
     const value = "";
-    const updatedPhone = phone.replace(/\D/g, "").replace(/^0+/, "");
+    const updatedPhone = phone.replace(/\D/g, "");
 
     return {
       email1: email,

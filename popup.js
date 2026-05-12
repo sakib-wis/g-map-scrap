@@ -172,26 +172,25 @@ btnLogClear.addEventListener("click", () => {
 // ── Export definitions ─────────────────────────────────
 // All columns for marketing team
 const COLUMNS = [
-  { key: "email1", label: "Email" },
-  { key: "email2", label: "Email" },
-  { key: "email3", label: "Email" },
-  { key: "phone1", label: "Phone" },
-  { key: "phone2", label: "Phone" },
-  { key: "phone3", label: "Phone" },
-  { key: "madid", label: "Madid" },
-  { key: "fn", label: "Fn" },
-  { key: "ln", label: "Ln" },
-  { key: "pincode", label: "Zip" },
-  { key: "city", label: "Ct" },
-  { key: "state", label: "St" },
-  { key: "country", label: "Country" },
-  { key: "dob", label: "DOB" },
-  { key: "doby", label: "Doby" },
+  { key: "email1", label: "email" },
+  { key: "email2", label: "email" },
+  { key: "email3", label: "email" },
+  { key: "phone1", label: "phone" },
+  { key: "phone2", label: "phone" },
+  { key: "phone3", label: "phone" },
+  { key: "madid", label: "madid" },
+  { key: "fn", label: "fn" },
+  { key: "ln", label: "ln" },
+  { key: "pincode", label: "zip" },
+  { key: "city", label: "ct" },
+  { key: "state", label: "st" },
+  { key: "country", label: "country" },
+  { key: "dob", label: "dob" },
+  { key: "doby", label: "doby" },
   { key: "gen", label: "gen" },
   { key: "age", label: "age" },
   { key: "uid", label: "uid" },
-  { key: "value", label: "Value" },
-  { key: "url", label: "Google Maps Link" },
+  { key: "value", label: "value" },
 ];
 
 // ── CSV Export ─────────────────────────────────────────
@@ -310,11 +309,6 @@ btnExcel.addEventListener("click", () => {
 
   // Title row
   const totalCols = COLUMNS.length;
-  const titleRow = `<Row ss:Height="30">
-    <Cell ss:MergeAcross="${totalCols - 1}" ss:StyleID="title">
-      <Data ss:Type="String">G Map Scrap — Business Data Export | ${results.length} Records | ${new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</Data>
-    </Cell>
-  </Row>`;
 
   // Header row
   const headerRow = `<Row ss:Height="22">
@@ -363,7 +357,7 @@ btnExcel.addEventListener("click", () => {
   </DocumentProperties>
   <Styles>${styles}</Styles>
   <Worksheet ss:Name="Business Data">
-    <Table>${colDefs}${titleRow}${headerRow}${dataRows}</Table>
+    <Table>${colDefs}${headerRow}${dataRows}</Table>
     <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
       <FreezePanes/>
       <FrozenNoSplit/>
