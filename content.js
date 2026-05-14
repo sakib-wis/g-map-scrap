@@ -17,6 +17,7 @@
   let running = false;
   let results = new Map();
   let scrolls = 0;
+  let link_extracted = 0;
 
   function sendLog(text, level = "") {
     try {
@@ -191,10 +192,11 @@
     const uid = "";
     const value = "";
 
-    phone = phone.replace(/\D/g, "").replace(/^0+/, "");
+    phone = phone.replace(/\D/g, "").replace(/^0+/, "").replaceAll("\s", "");
+    sendLog(`Number: ${phone}`);
     if (!/^(?:\+91|0)?[6-9]\d{9}$/.test(phone)) return null;
     const updatedPhone = `91${phone}`;
-    sendLog(`${results.size + 1}. Record: ${updatedPhone}, ${name}`);
+    sendLog(`${link_extracted}. Record: ${updatedPhone}, ${name}`);
 
     return {
       email1: email,
@@ -242,12 +244,17 @@
   // ── Extract all cards on page ──────────────────────────────────────────────
   async function extractAll() {
     const before = results.size;
+    // Get all links which start from google.com/maps.place
     const links = Array.from(
       document.querySelectorAll(
-        'a[href*="/maps/place/"], a[href*="google.com/maps/place"]',
+        'a[href^="https://www.google.com/maps/place/"]',
       ),
     );
-    for (const link of links.slice(before)) {
+    sendLog(
+      `Total links: ${links.length}, New Records: ${links.slice(link_extracted).length}`,
+    );
+    for (const link of links.slice(link_extracted)) {
+      link_extracted += 1;
       try {
         const url = link.href || "";
         link.click();
@@ -255,10 +262,14 @@
         await delay(3000);
         const card = document.querySelector("div.bJzME.Hu9e2e.tTVLSc");
         const data = extractCard(card, url);
-        if (!data) return;
-        const key = `${data?.phone1}`;
-        if (!key) return;
-        results.set(key, data);
+        if (data) {
+          const key = `${data?.phone1}`;
+          if (key) {
+            results.set(key, data);
+          }
+        } else {
+          sendLog("DATA NOT FOUND");
+        }
         sendProgress();
         await delay(1000);
       } catch (e) {
@@ -273,6 +284,52 @@
     const amt = 300 + Math.random() * 400;
     el.scrollBy({ top: amt, behavior: "smooth" });
     window.scrollBy({ top: Math.floor(amt * 0.3), behavior: "smooth" });
+  }
+  async function waitForNewResults(oldCount, timeout = 10000) {
+    const start = Date.now();
+
+    while (Date.now() - start < timeout) {
+      const count = document.querySelectorAll(
+        'a[href^="https://www.google.com/maps/place/"]',
+      ).length;
+
+      if (count > oldCount) {
+        return true;
+      }
+
+      await delay(300);
+    }
+
+    return false;
+  }
+  async function waitForScrollStop(el, timeout = 5000) {
+    return new Promise((resolve) => {
+      let last = el.scrollTop;
+      let sameCount = 0;
+
+      const interval = setInterval(() => {
+        const current = el.scrollTop;
+
+        if (current === last) {
+          sameCount++;
+        } else {
+          sameCount = 0;
+        }
+
+        last = current;
+
+        // stopped moving
+        if (sameCount >= 3) {
+          clearInterval(interval);
+          resolve();
+        }
+      }, 200);
+
+      setTimeout(() => {
+        clearInterval(interval);
+        resolve();
+      }, timeout);
+    });
   }
   const delay = (ms) =>
     new Promise((r) => setTimeout(r, ms + Math.random() * 500));
@@ -296,9 +353,18 @@
     let prevScrollTop = -1;
 
     while (running && scrolls < 200) {
+      const oldCount = document.querySelectorAll(
+        'a[href^="https://www.google.com/maps/place/"]',
+      ).length;
+
       humanScroll(scrollEl);
       scrolls++;
-      await delay(1900);
+
+      // wait until smooth scrolling stops
+      await waitForScrollStop(scrollEl);
+
+      // wait until new records appear
+      await waitForNewResults(oldCount);
 
       const newGained = await extractAll();
       sendProgress();
@@ -311,7 +377,7 @@
         );
       } else {
         noNewStreak++;
-        sendLog(`Scroll ${scrolls}: no new (${noNewStreak}/7)`, "");
+        sendLog(`Scroll ${scrolls}`, "");
       }
 
       const cur = scrollEl.scrollTop || window.scrollY;
@@ -320,7 +386,7 @@
         break;
       }
       prevScrollTop = cur;
-      if (noNewStreak >= 7) {
+      if (noNewStreak >= 100) {
         sendLog("No new results. Done.", "warn");
         break;
       }
