@@ -219,8 +219,9 @@
     const age = "";
     const uid = "";
     const value = "";
-    if (!phone && /^(?:\+91|0)?[6-9]\d{9}$/.test(phone)) return null;
-    const updatedPhone = `91${phone.replace(/\D/g, "").replace(/^0+/, "")}`;
+    phone = phone.replace(/\D/g, "").replace(/^0+/, "");
+    if (!/^(?:\+91|0)?[6-9]\d{9}$/.test(phone)) return null;
+    const updatedPhone = `91${phone}`;
 
     return {
       email1: email,
@@ -286,7 +287,11 @@
         // always re-select AFTER load
         const card = document.querySelector("div.bJzME.Hu9e2e.tTVLSc");
         const data = extractCard(card, url);
-        const key = data?.fn?.toLowerCase().replace(/\s+/g, "");
+        if (!data) {
+          return;
+        }
+        console.log("DATA", data);
+        const key = `${data?.phone1}-${data?.phone2}-${data?.phone3}`;
         if (!key) {
           return;
         }
