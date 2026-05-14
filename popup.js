@@ -40,16 +40,25 @@ function updateStats(found, sc) {
     btnCsv.disabled = false;
   }
 }
-function startTimer() {
-  elapsed = 0;
+function startTimer(fromSeconds = 0) {
+  elapsed = fromSeconds;
   clearInterval(timer);
+  countTime.textContent = formatTime(elapsed);
   timer = setInterval(() => {
     elapsed++;
-    countTime.textContent =
-      elapsed < 60
-        ? elapsed + "s"
-        : Math.floor(elapsed / 60) + "m" + (elapsed % 60) + "s";
+    countTime.textContent = formatTime(elapsed);
+    // Persist elapsed so next popup open can restore it
+    chrome.storage.local.get(["gmapScrapeState"], (data) => {
+      if (data.gmapScrapeState && data.gmapScrapeState.scraping) {
+        chrome.storage.local.set({
+          gmapScrapeState: { ...data.gmapScrapeState, elapsed },
+        });
+      }
+    });
   }, 1000);
+}
+function formatTime(s) {
+  return s < 60 ? s + "s" : Math.floor(s / 60) + "m" + (s % 60) + "s";
 }
 function stopTimer() {
   clearInterval(timer);
@@ -60,7 +69,6 @@ function setScraping(active) {
   btnStop.disabled = !active;
   if (active) {
     setStatus("active", "Scraping in progress...");
-    startTimer();
     progressBar.style.width = "8%";
     progressLabel.textContent = "Scrolling & extracting...";
   } else {
@@ -104,20 +112,73 @@ async function injectAndStart(tabId) {
   });
 }
 
-// Load stored
-chrome.storage.local.get(["gmapResults"], (data) => {
-  if (data.gmapResults && data.gmapResults.length) {
-    results = data.gmapResults;
-    updateStats(results.length, 0);
+// ── REHYDRATE STATE ON POPUP OPEN ─────────────────────────────────────────────
+// This runs every time the popup opens (including after tab switch).
+// It checks storage for an active scrape and restores the UI.
+async function rehydrateState() {
+  const data = await new Promise((r) =>
+    chrome.storage.local.get(["gmapScrapeState", "gmapResults"], r),
+  );
+
+  const state = data.gmapScrapeState;
+  const savedResults = data.gmapResults || [];
+
+  if (state && state.scraping) {
+    // Scraping was active when popup closed — restore live UI
+    results = savedResults;
+    scraping = true;
+    btnStart.disabled = true;
+    btnStop.disabled = false;
+    setStatus("active", "Scraping in progress...");
+
+    const restoredElapsed = state.elapsed || 0;
+    startTimer(restoredElapsed);
+
+    updateStats(state.found || savedResults.length, state.scrolls || 0);
+    progressBar.style.width = Math.min(8 + (state.scrolls || 0) * 4, 92) + "%";
+    progressLabel.textContent = `Scroll ${state.scrolls || 0} — ${state.found || savedResults.length} records found`;
+
+    log(
+      `↺ Reconnected to active scrape (${state.found || 0} records so far)`,
+      "success",
+    );
+
+    // Also try to ask the content script for its live state
+    const [tab] = await chrome.tabs.query({
+      active: true,
+      currentWindow: true,
+    });
+    if (tab) {
+      chrome.tabs.sendMessage(tab.id, { action: "GET_STATE" }, (res) => {
+        if (chrome.runtime.lastError || !res) return;
+        if (res.running) {
+          updateStats(res.found, res.scrolls);
+          log(`Live state: ${res.found} records, ${res.scrolls} scrolls`, "");
+        } else if (!res.running && state.scraping) {
+          // Content script finished while popup was closed
+          setScraping(false);
+          log("Scrape completed while popup was closed.", "warn");
+        }
+      });
+    }
+  } else if (savedResults.length > 0) {
+    // Scraping done, show previous results
+    results = savedResults;
+    updateStats(results.length, state?.scrolls || 0);
     setStatus(
       "done",
       `<span>${results.length} records</span> from last session`,
     );
     progressBar.style.width = "100%";
     progressLabel.textContent = `${results.length} results ready`;
+    btnExcel.disabled = false;
+    btnCsv.disabled = false;
     log(`Loaded ${results.length} records from last session.`, "success");
   }
-});
+}
+
+// Run rehydration immediately
+rehydrateState();
 
 btnStart.addEventListener("click", async () => {
   alertBox.classList.remove("show");
@@ -137,10 +198,12 @@ btnStart.addEventListener("click", async () => {
   updateStats(0, 0);
   countTime.textContent = "0s";
   setScraping(true);
+  startTimer(0);
   log("Launching deep extractor...", "");
   const ok = await injectAndStart(tab.id);
   if (!ok) {
     setScraping(false);
+    stopTimer();
     log("Failed to start. Try refreshing the page.", "error");
   }
 });
@@ -149,12 +212,16 @@ btnStop.addEventListener("click", async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (tab) chrome.tabs.sendMessage(tab.id, { action: "STOP_SCRAPE" }, () => {});
   setScraping(false);
+  stopTimer();
   log("Stopped by user.", "warn");
 });
 
 btnClear.addEventListener("click", () => {
   results = [];
-  chrome.storage.local.set({ gmapResults: [] });
+  chrome.storage.local.set({
+    gmapResults: [],
+    gmapScrapeState: { scraping: false },
+  });
   updateStats(0, 0);
   countTime.textContent = "0s";
   progressBar.style.width = "0%";
@@ -170,7 +237,6 @@ btnLogClear.addEventListener("click", () => {
 });
 
 // ── Export definitions ─────────────────────────────────
-// All columns for marketing team
 const COLUMNS = [
   { key: "email1", label: "email" },
   { key: "email2", label: "email" },
@@ -234,7 +300,6 @@ btnExcel.addEventListener("click", () => {
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
 
-  // Style IDs
   const styles = `
   <Style ss:ID="title">
     <Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/>
@@ -300,33 +365,23 @@ btnExcel.addEventListener("click", () => {
     <Interior ss:Color="#FEE2E2" ss:Pattern="Solid"/>
   </Style>`;
 
-  // Column widths
   const colWidths = [
     180, 120, 55, 70, 90, 60, 110, 150, 220, 90, 100, 70, 70, 160, 200,
   ];
-
   const colDefs = colWidths.map((w) => `<Column ss:Width="${w}"/>`).join("");
 
-  // Title row
-  const totalCols = COLUMNS.length;
-
-  // Header row
   const headerRow = `<Row ss:Height="22">
     ${COLUMNS.map((c) => `<Cell ss:StyleID="header"><Data ss:Type="String">${esc(c.label)}</Data></Cell>`).join("")}
   </Row>`;
 
-  // Data rows
   const dataRows = results
     .map((r, i) => {
       const isEven = i % 2 === 1;
       const base = isEven ? "rowEven" : "rowOdd";
-      const cells = COLUMNS.map((c, ci) => {
+      const cells = COLUMNS.map((c) => {
         const val = r[c.key] || "";
-        // Rating column — special style
-        if (c.key === "rating" && val) {
+        if (c.key === "rating" && val)
           return `<Cell ss:StyleID="${isEven ? "ratingEven" : "rating"}"><Data ss:Type="String">★ ${esc(val)}</Data></Cell>`;
-        }
-        // Status column
         if (c.key === "status") {
           const sStyle = /open now|open 24/i.test(val)
             ? "open"
@@ -335,10 +390,8 @@ btnExcel.addEventListener("click", () => {
               : base;
           return `<Cell ss:StyleID="${sStyle}"><Data ss:Type="String">${esc(val)}</Data></Cell>`;
         }
-        // URL column — hyperlink
-        if (c.key === "url" && val) {
+        if (c.key === "url" && val)
           return `<Cell ss:StyleID="${isEven ? "linkEven" : "link"}" ss:HRef="${esc(val)}"><Data ss:Type="String">View on Maps</Data></Cell>`;
-        }
         return `<Cell ss:StyleID="${base}"><Data ss:Type="String">${esc(val)}</Data></Cell>`;
       }).join("");
       return `<Row ss:Height="18">${cells}</Row>`;
@@ -391,8 +444,16 @@ chrome.runtime.onMessage.addListener((msg) => {
   }
   if (msg.type === "DONE") {
     results = msg.data || [];
-    chrome.storage.local.set({ gmapResults: results });
+    chrome.storage.local.set({
+      gmapResults: results,
+      gmapScrapeState: {
+        scraping: false,
+        found: results.length,
+        scrolls: msg.scrolls,
+      },
+    });
     setScraping(false);
+    stopTimer();
     updateStats(results.length, msg.scrolls);
     if (results.length > 0) {
       log(`✓ Done! ${results.length} businesses extracted.`, "success");

@@ -24,12 +24,20 @@
     } catch (e) {}
   }
   function sendProgress() {
+    const found = results.size;
+    // ── SYNC STATE TO STORAGE so popup can rehydrate after tab switch ──
     try {
-      chrome.runtime.sendMessage({
-        type: "PROGRESS",
-        found: results.size,
-        scrolls,
+      chrome.storage.local.set({
+        gmapScrapeState: {
+          scraping: true,
+          found,
+          scrolls,
+          startedAt: window.__gmapScrapStartedAt || Date.now(),
+        },
       });
+    } catch (e) {}
+    try {
+      chrome.runtime.sendMessage({ type: "PROGRESS", found, scrolls });
     } catch (e) {}
   }
 
@@ -62,11 +70,9 @@
       pincode = "",
       country = "India";
 
-    // Pincode: 6-digit number in India
     const pinMatch = address.match(/\b(\d{6})\b/);
     if (pinMatch) pincode = pinMatch[1];
 
-    // Known Indian states (also covers UTs)
     const states = [
       "Andhra Pradesh",
       "Arunachal Pradesh",
@@ -112,14 +118,11 @@
       }
     }
 
-    // City: try to extract from comma-separated address parts
     const parts = address
       .split(",")
       .map((p) => p.trim())
       .filter(Boolean);
-    // City is often 2nd or 3rd last part before state/pincode
     if (parts.length >= 2) {
-      // find a part that's a word (not a number, not the state)
       for (let i = parts.length - 1; i >= 0; i--) {
         const p = parts[i];
         if (
@@ -138,78 +141,46 @@
     return { city, state, pincode, country };
   }
 
-  // ── Parse structured hours from aria-labels / text ─────────────────────────
+  // ── Parse structured hours ─────────────────────────────────────────────────
   function parseHours(card) {
     const result = [];
-
-    // ✅ 1. Parse table (best source)
     const rows = card.querySelectorAll("table tr");
-
     if (rows.length > 0) {
       rows.forEach((row) => {
         const day = row.querySelector("td:first-child")?.innerText?.trim();
         const time = row.querySelector("td:nth-child(2)")?.innerText?.trim();
-
-        if (day && time) {
-          result.push(`${day}: ${time}`);
-        }
+        if (day && time) result.push(`${day}: ${time}`);
       });
-
-      if (result.length > 0) {
-        return result.join(" | "); // 🔥 flat string
-      }
+      if (result.length > 0) return result.join(" | ");
     }
-
-    // ✅ 2. Fallback: aria-label buttons
     const btns = card.querySelectorAll(
       'button[aria-label*="am"], button[aria-label*="pm"]',
     );
-
     for (const btn of btns) {
       const label = btn.getAttribute("aria-label");
-      if (label && label.length > 10) {
-        return label.replace(/\s+/g, " ").trim();
-      }
+      if (label && label.length > 10) return label.replace(/\s+/g, " ").trim();
     }
-
-    // ✅ 3. Fallback: open/close text
     const text = Array.from(card.querySelectorAll("span, div"))
       .map((el) => el.innerText?.trim())
       .find((t) => /\b(open|closed|closes|opens|24 hours)\b/i.test(t || ""));
-
     return text || "";
   }
 
   // ── Deep extract from a single card ───────────────────────────────────────
   function extractCard(card, url) {
-    // Name
     const nameEl = card.querySelector(".DUwDvf");
     if (!nameEl) return null;
     const name = t(nameEl);
     if (!name || name.length < 2) return null;
-    // // Rating
+
     let rating = t(card.querySelector(".F7nice span span"));
-    // // Reviews count
     let reviews = t(card.querySelector('.F7nice span span span[role="img"]'));
-    // // Category
     let category = t(card.querySelector(".DkEaL"));
     let phone = t(card.querySelector('[data-item-id^="phone"] .Io6YTe'));
-    // Parse address components
-    // Full address
     let address = t(card.querySelector(".Io6YTe.fontBodyMedium.kR99db.fdkmkc"));
-    // Parse address components
     const { city, state, pincode, country } = parseAddress(address);
-    // // Hours (full string)
     const hours = parseHours(card);
-    // // Status (open/closed right now)
     let status = t(card.querySelector("span.ZDu9vd"));
-    // Google Maps URL cleanup
-    const cleanUrl = url
-      ? url.split("?")[0] +
-        (url.includes("?")
-          ? "?" + url.split("?")[1].split("&").slice(0, 2).join("&")
-          : "")
-      : "";
     const email = "";
     const madid = "";
     const [fn, ...ln] = name.split(" ");
@@ -219,9 +190,11 @@
     const age = "";
     const uid = "";
     const value = "";
+
     phone = phone.replace(/\D/g, "").replace(/^0+/, "");
     if (!/^(?:\+91|0)?[6-9]\d{9}$/.test(phone)) return null;
     const updatedPhone = `91${phone}`;
+    sendLog(`${results.size + 1}. Record: ${updatedPhone}, ${name}`);
 
     return {
       email1: email,
@@ -243,23 +216,20 @@
       age,
       uid,
       value,
-      url: cleanUrl,
     };
   }
-  //------------ WAIT FOR ELEMENT -----------------------
+
+  // ── Wait for element ───────────────────────────────────────────────────────
   function waitForElement(selector, timeout = 10000) {
     return new Promise((resolve, reject) => {
       const interval = 300;
       let elapsed = 0;
-
       const timer = setInterval(() => {
         const el = document.querySelector(selector);
-
         if (el) {
           clearInterval(timer);
           resolve(el);
         }
-
         elapsed += interval;
         if (elapsed >= timeout) {
           clearInterval(timer);
@@ -268,10 +238,10 @@
       }, interval);
     });
   }
-  // ── Extract all cards on page ─────────────────────────────────────────────
+
+  // ── Extract all cards on page ──────────────────────────────────────────────
   async function extractAll() {
     const before = results.size;
-    // Google Search local pack
     const links = Array.from(
       document.querySelectorAll(
         'a[href*="/maps/place/"], a[href*="google.com/maps/place"]',
@@ -281,25 +251,18 @@
       try {
         const url = link.href || "";
         link.click();
-        // wait for popup load
         await waitForElement("h1.DUwDvf");
         await delay(3000);
-        // always re-select AFTER load
         const card = document.querySelector("div.bJzME.Hu9e2e.tTVLSc");
         const data = extractCard(card, url);
-        if (!data) {
-          return;
-        }
-        console.log("DATA", data);
-        const key = `${data?.phone1}-${data?.phone2}-${data?.phone3}`;
-        if (!key) {
-          return;
-        }
+        if (!data) return;
+        const key = `${data?.phone1}`;
+        if (!key) return;
         results.set(key, data);
-        // wait before next click (avoid blocking)
-        await delay(2000);
+        sendProgress();
+        await delay(1000);
       } catch (e) {
-        console.log("Error:", e);
+        sendLog("Error:", e);
       }
     }
     return results.size - before;
@@ -366,6 +329,14 @@
     await extractAll();
     const data = Array.from(results.values());
     sendLog(`Complete! ${data.length} records with full details.`, "success");
+
+    // ── Clear scrape state, save final results ─────────────────────────────
+    try {
+      chrome.storage.local.set({
+        gmapResults: data,
+        gmapScrapeState: { scraping: false, found: data.length, scrolls },
+      });
+    } catch (e) {}
     try {
       chrome.runtime.sendMessage({ type: "DONE", data, scrolls });
     } catch (e) {}
@@ -384,6 +355,17 @@
       scrolls = 0;
       running = true;
       window.__gmapScrapActive = true;
+      window.__gmapScrapStartedAt = Date.now();
+      // Save start state immediately
+      chrome.storage.local.set({
+        gmapScrapeState: {
+          scraping: true,
+          found: 0,
+          scrolls: 0,
+          startedAt: Date.now(),
+        },
+        gmapResults: [],
+      });
       scrapeLoop();
       sendResponse({ ok: true });
     }
@@ -391,10 +373,23 @@
       running = false;
       window.__gmapScrapActive = false;
       const data = Array.from(results.values());
+      chrome.storage.local.set({
+        gmapResults: data,
+        gmapScrapeState: { scraping: false, found: data.length, scrolls },
+      });
       try {
         chrome.runtime.sendMessage({ type: "DONE", data, scrolls });
       } catch (e) {}
       sendResponse({ ok: true });
+    }
+    if (msg.action === "GET_STATE") {
+      // Popup asking for current live state on reopen
+      sendResponse({
+        running,
+        found: results.size,
+        scrolls,
+        startedAt: window.__gmapScrapStartedAt || null,
+      });
     }
     return true;
   });
