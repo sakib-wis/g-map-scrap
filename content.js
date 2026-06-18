@@ -260,7 +260,10 @@
         link.click();
         await waitForElement("h1.DUwDvf");
         await delay(3000);
-        const card = document.querySelector("div.bJzME.Hu9e2e.tTVLSc");
+        const card = document.querySelector(
+          "body > div:nth-child(5) > div.lbMcOd.y2iKwd.eZfyae.cSgCkb.xcUKcd.y2Sqzf.S38FBb > div.UL7Qtf > div.g2LZJb > div > div > div.w6VYqd > div.bJzME.Hu9e2e.IJUlqd.vJk0Jb > div > div.e07Vkf.kA9KIf > div > div",
+        );
+        if (!card) continue;
         const data = extractCard(card, url);
         if (data) {
           const key = `${data?.phone1}`;
@@ -273,6 +276,7 @@
         sendProgress();
         await delay(1000);
       } catch (e) {
+        console.log("ERROR:", e, document);
         sendLog("Error:", e);
       }
     }
