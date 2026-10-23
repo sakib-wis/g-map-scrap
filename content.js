@@ -2,22 +2,18 @@
 (function () {
   "use strict";
 
-  if (window.__gmapScrapActive) {
-    try {
-      chrome.runtime.sendMessage({
-        type: "LOG",
-        text: "Already active.",
-        level: "warn",
-      });
-    } catch (e) {}
+  if (window.__gmapScrapInitialized) {
     return;
   }
-  window.__gmapScrapActive = true;
+  window.__gmapScrapInitialized = true;
+  window.__gmapScrapActive = false;
 
   let running = false;
   let results = new Map();
   let scrolls = 0;
-  let link_extracted = 0;
+  let scrapeTabId = null;
+  let lastStorageSync = 0;
+  const processedLinks = new Set();
 
   function sendLog(text, level = "") {
     try {
@@ -27,16 +23,21 @@
   function sendProgress() {
     const found = results.size;
     // ── SYNC STATE TO STORAGE so popup can rehydrate after tab switch ──
-    try {
-      chrome.storage.local.set({
-        gmapScrapeState: {
-          scraping: true,
-          found,
-          scrolls,
-          startedAt: window.__gmapScrapStartedAt || Date.now(),
-        },
-      });
-    } catch (e) {}
+    if (Date.now() - lastStorageSync >= 3000) {
+      lastStorageSync = Date.now();
+      try {
+        chrome.storage.local.set({
+          gmapScrapeState: {
+            scraping: true,
+            found,
+            scrolls,
+            tabId: scrapeTabId,
+            startedAt: window.__gmapScrapStartedAt || Date.now(),
+          },
+          gmapResults: Array.from(results.values()),
+        });
+      } catch (e) {}
+    }
     try {
       chrome.runtime.sendMessage({ type: "PROGRESS", found, scrolls });
     } catch (e) {}
@@ -44,20 +45,26 @@
 
   // ── Scroll container ──────────────────────────────────────────────────────
   function getScrollContainer() {
-    const feed = document.querySelector('div[role="feed"]');
-    if (feed) return feed;
-    const all = Array.from(document.querySelectorAll("div"));
-    const scrollable = all.find((el) => {
-      const s = window.getComputedStyle(el);
-      const r = el.getBoundingClientRect();
+    const candidates = Array.from(
+      document.querySelectorAll('div[role="feed"], div, main'),
+    ).filter((el) => {
+      const rect = el.getBoundingClientRect();
+      const style = getComputedStyle(el);
       return (
-        (s.overflowY === "auto" || s.overflowY === "scroll") &&
-        el.scrollHeight > 800 &&
-        r.height > 300 &&
-        r.width > 200
+        rect.width > 180 &&
+        rect.height > 180 &&
+        el.scrollHeight > el.clientHeight + 80 &&
+        (/(auto|scroll|overlay)/.test(style.overflowY) || el.getAttribute("role") === "feed")
       );
     });
-    return scrollable || document.scrollingElement || document.documentElement;
+
+    const score = (el) => {
+      const linkCount = el.querySelectorAll('a[href*="/maps/place/"]').length;
+      const feedBonus = el.getAttribute("role") === "feed" ? 100000 : 0;
+      return feedBonus + linkCount * 1000 + Math.min(el.scrollHeight - el.clientHeight, 100000);
+    };
+    candidates.sort((a, b) => score(b) - score(a));
+    return candidates[0] || document.scrollingElement || document.documentElement;
   }
 
   function t(el) {
@@ -69,7 +76,7 @@
     let city = "",
       state = "",
       pincode = "",
-      country = "India";
+      country = "";
 
     const pinMatch = address.match(/\b(\d{6})\b/);
     if (pinMatch) pincode = pinMatch[1];
@@ -109,8 +116,6 @@
       "Kashmir",
       "Ladakh",
       "Puducherry",
-      "Mohali",
-      "SAS Nagar",
     ];
     for (const s of states) {
       if (address.toLowerCase().includes(s.toLowerCase())) {
@@ -142,198 +147,127 @@
     return { city, state, pincode, country };
   }
 
-  // ── Parse structured hours ─────────────────────────────────────────────────
-  function parseHours(card) {
-    const result = [];
-    const rows = card.querySelectorAll("table tr");
-    if (rows.length > 0) {
-      rows.forEach((row) => {
-        const day = row.querySelector("td:first-child")?.innerText?.trim();
-        const time = row.querySelector("td:nth-child(2)")?.innerText?.trim();
-        if (day && time) result.push(`${day}: ${time}`);
+  // Google Maps changes CSS class names frequently. Prefer the result link's
+  // accessible label, then read only the smallest nearby result card text.
+  function getPlaceLinks() {
+    return Array.from(document.querySelectorAll('a[href*="/maps/place/"]'))
+      .filter((link) => {
+        try {
+          const url = new URL(link.href);
+          return (
+            ["www.google.com", "maps.google.com"].includes(url.hostname) &&
+            url.pathname.startsWith("/maps/place/")
+          );
+        } catch {
+          return false;
+        }
       });
-      if (result.length > 0) return result.join(" | ");
-    }
-    const btns = card.querySelectorAll(
-      'button[aria-label*="am"], button[aria-label*="pm"]',
-    );
-    for (const btn of btns) {
-      const label = btn.getAttribute("aria-label");
-      if (label && label.length > 10) return label.replace(/\s+/g, " ").trim();
-    }
-    const text = Array.from(card.querySelectorAll("span, div"))
-      .map((el) => el.innerText?.trim())
-      .find((t) => /\b(open|closed|closes|opens|24 hours)\b/i.test(t || ""));
-    return text || "";
   }
 
-  // ── Deep extract from a single card ───────────────────────────────────────
-  function extractCard(card, url) {
-    const nameEl = card.querySelector(".DUwDvf");
-    if (!nameEl) return null;
-    const name = t(nameEl);
-    if (!name || name.length < 2) return null;
+  function getListingCard(link) {
+    const namedCard = link.closest('[role="article"], .Nv2PK, [data-result-index]');
+    if (namedCard) return namedCard;
 
-    let rating = t(card.querySelector(".F7nice span span"));
-    let reviews = t(card.querySelector('.F7nice span span span[role="img"]'));
-    let category = t(card.querySelector(".DkEaL"));
-    let phone = t(card.querySelector('[data-item-id^="phone"] .Io6YTe'));
-    let address = t(card.querySelector(".Io6YTe.fontBodyMedium.kR99db.fdkmkc"));
+    let current = link.parentElement;
+    for (let depth = 0; current && depth < 9; depth++, current = current.parentElement) {
+      const text = t(current);
+      if (text.length > 40 && text.length < 1400 && /\b\d(?:\.\d)?\s*\(\s*[\d,.]+\s*\)/.test(text)) {
+        return current;
+      }
+      if (current.matches('div[role="feed"]')) break;
+    }
+    return link.parentElement || link;
+  }
+
+  function extractCard(link, url) {
+    const card = getListingCard(link);
+    const lines = (card.innerText || "")
+      .split("\n")
+      .map((line) => line.replace(/\s+/g, " ").trim())
+      .filter(Boolean)
+      .filter((line) => !/^(sponsored|visited link|results|share|update results when map moves)$/i.test(line));
+    const ratingLine = lines.find((line) => /\b\d(?:\.\d)?\s*\(\s*[\d,.]+\s*\)/.test(line)) || "";
+    const ratingMatch = ratingLine.match(/\b(\d(?:\.\d)?)\s*\(\s*([\d,.]+)\s*\)/);
+    const title = card.querySelector('[role="heading"], .qBF1Pd, .fontHeadlineSmall');
+    const ariaName = link.getAttribute("aria-label")?.trim();
+    const name = t(title) || ariaName || lines.find((line) => line !== ratingLine && !line.includes(" · ")) || "";
+    if (!name || /^(results|share|directions)$/i.test(name)) return null;
+
+    const infoLine = lines.find((line) => line.includes(" · ") && line !== ratingLine) || "";
+    const infoParts = infoLine.split(" · ").map((part) => part.trim()).filter(Boolean);
+    const category = infoParts[0] || "";
+    const address = infoParts.slice(1).join(", ");
+    const hoursLine = lines.find((line) => /\b(open|closed|opens|closes|24 hours)\b/i.test(line)) || "";
+    const phoneMatch = hoursLine.match(/(?:\+?\d[\d\s().-]{6,}\d)/);
+    const phone = phoneMatch && phoneMatch[0].replace(/\D/g, "").length >= 7
+      ? phoneMatch[0].trim()
+      : "";
+    const hours = hoursLine.replace(phoneMatch?.[0] || "", "").replace(/[·,\s]+$/, "").trim();
     const { city, state, pincode, country } = parseAddress(address);
-    const hours = parseHours(card);
-    let status = t(card.querySelector("span.ZDu9vd"));
-    const email = "";
-    const madid = "";
-    const [fn, ...ln] = name.split(" ");
-    const dob = "";
-    const doby = "";
-    const gen = "";
-    const age = "";
-    const uid = "";
-    const value = "";
-
-    phone = phone.replace(/\D/g, "").replace(/^0+/, "").replaceAll("\s", "");
-    sendLog(`Number: ${phone}`);
-    if (!/^(?:\+91|0)?[6-9]\d{9}$/.test(phone)) return null;
-    const updatedPhone = `91${phone}`;
-    sendLog(`${link_extracted}. Record: ${updatedPhone}, ${name}`);
 
     return {
-      email1: email,
-      email2: "",
-      email3: "",
-      phone1: updatedPhone,
-      phone2: "",
-      phone3: "",
-      madid,
-      fn,
-      ln,
+      name,
+      category,
+      rating: ratingMatch?.[1] || "",
+      reviews: ratingMatch?.[2] || "",
+      status: /\b(open|closed)\b/i.test(hours) ? hours : "",
+      phone,
+      address,
       pincode,
       city,
       state,
       country,
-      dob,
-      doby,
-      gen,
-      age,
-      uid,
-      value,
+      hours,
+      url,
     };
   }
 
-  // ── Wait for element ───────────────────────────────────────────────────────
-  function waitForElement(selector, timeout = 10000) {
-    return new Promise((resolve, reject) => {
-      const interval = 300;
-      let elapsed = 0;
-      const timer = setInterval(() => {
-        const el = document.querySelector(selector);
-        if (el) {
-          clearInterval(timer);
-          resolve(el);
-        }
-        elapsed += interval;
-        if (elapsed >= timeout) {
-          clearInterval(timer);
-          reject("Element not found: " + selector);
-        }
-      }, interval);
-    });
-  }
-
-  // ── Extract all cards on page ──────────────────────────────────────────────
   async function extractAll() {
     const before = results.size;
-    // Get all links which start from google.com/maps.place
-    const links = Array.from(
-      document.querySelectorAll(
-        'a[href^="https://www.google.com/maps/place/"]',
-      ),
-    );
-    sendLog(
-      `Total links: ${links.length}, New Records: ${links.slice(link_extracted).length}`,
-    );
-    for (const link of links.slice(link_extracted)) {
-      link_extracted += 1;
+    const links = getPlaceLinks();
+    sendLog(`Visible result links: ${links.length}`);
+    for (const link of links) {
+      if (!running) break;
+      const url = link.href;
+      if (processedLinks.has(url)) continue;
       try {
-        const url = link.href || "";
-        link.click();
-        await waitForElement("h1.DUwDvf");
-        await delay(3000);
-        const card = document.querySelector(
-          "body > div:nth-child(5) > div.lbMcOd.y2iKwd.eZfyae.cSgCkb.xcUKcd.y2Sqzf.S38FBb > div.UL7Qtf > div.g2LZJb > div > div > div.w6VYqd > div.bJzME.Hu9e2e.IJUlqd.vJk0Jb > div > div.e07Vkf.kA9KIf > div > div",
-        );
-        if (!card) continue;
-        const data = extractCard(card, url);
+        const data = extractCard(link, url);
         if (data) {
-          const key = `${data?.phone1}`;
-          if (key) {
-            results.set(key, data);
-          }
-        } else {
-          sendLog("DATA NOT FOUND");
+          processedLinks.add(url);
+          results.set(url, data);
+          sendLog(`Captured: ${data.name}`, "success");
         }
         sendProgress();
-        await delay(1000);
       } catch (e) {
-        console.log("ERROR:", e, document);
-        sendLog("Error:", e);
+        sendLog(`Could not read a visible result: ${String(e)}`, "warn");
       }
     }
     return results.size - before;
   }
 
   // ── Scroll ────────────────────────────────────────────────────────────────
-  function humanScroll(el) {
-    const amt = 300 + Math.random() * 400;
-    el.scrollBy({ top: amt, behavior: "smooth" });
-    window.scrollBy({ top: Math.floor(amt * 0.3), behavior: "smooth" });
+  function scrollOneViewport(el) {
+    const before = el.scrollTop;
+    const step = Math.max(Math.floor(el.clientHeight * 0.8), 500);
+    const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
+    el.scrollTop = Math.min(before + step, maxTop);
+    return { before, target: Math.min(before + step, maxTop) };
   }
-  async function waitForNewResults(oldCount, timeout = 10000) {
-    const start = Date.now();
 
-    while (Date.now() - start < timeout) {
-      const count = document.querySelectorAll(
-        'a[href^="https://www.google.com/maps/place/"]',
-      ).length;
-
-      if (count > oldCount) {
-        return true;
+  async function waitForFeed(el, previousHeight, previousLinks) {
+    await delay(900);
+    const started = Date.now();
+    while (Date.now() - started < 2500) {
+      if (
+        el.scrollHeight > previousHeight ||
+        getPlaceLinks().length > previousLinks ||
+        el.scrollTop + el.clientHeight >= el.scrollHeight - 8
+      ) {
+        await delay(500);
+        return;
       }
-
-      await delay(300);
+      await delay(250);
     }
-
-    return false;
-  }
-  async function waitForScrollStop(el, timeout = 5000) {
-    return new Promise((resolve) => {
-      let last = el.scrollTop;
-      let sameCount = 0;
-
-      const interval = setInterval(() => {
-        const current = el.scrollTop;
-
-        if (current === last) {
-          sameCount++;
-        } else {
-          sameCount = 0;
-        }
-
-        last = current;
-
-        // stopped moving
-        if (sameCount >= 3) {
-          clearInterval(interval);
-          resolve();
-        }
-      }, 200);
-
-      setTimeout(() => {
-        clearInterval(interval);
-        resolve();
-      }, timeout);
-    });
   }
   const delay = (ms) =>
     new Promise((r) => setTimeout(r, ms + Math.random() * 500));
@@ -353,58 +287,67 @@
       sendLog("Make sure Google shows the local business map panel.", "warn");
     sendProgress();
 
-    let noNewStreak = 0;
-    let prevScrollTop = -1;
+    let bottomPasses = 0;
+    let stalledPasses = 0;
 
-    while (running && scrolls < 200) {
-      const oldCount = document.querySelectorAll(
-        'a[href^="https://www.google.com/maps/place/"]',
-      ).length;
-
-      humanScroll(scrollEl);
+    while (running) {
+      const activeScroller = getScrollContainer();
+      const { before, target } = scrollOneViewport(activeScroller);
+      const oldHeight = activeScroller.scrollHeight;
+      const oldLinks = getPlaceLinks().length;
       scrolls++;
 
-      // wait until smooth scrolling stops
-      await waitForScrollStop(scrollEl);
-
-      // wait until new records appear
-      await waitForNewResults(oldCount);
-
+      await waitForFeed(activeScroller, oldHeight, oldLinks);
       const newGained = await extractAll();
       sendProgress();
 
+      const atBottom =
+        activeScroller.scrollTop + activeScroller.clientHeight >=
+        activeScroller.scrollHeight - 8;
+      const moved = activeScroller.scrollTop > before + 2;
+      const loadedMore =
+        activeScroller.scrollHeight > oldHeight ||
+        getPlaceLinks().length > oldLinks ||
+        newGained > 0;
+
       if (newGained > 0) {
-        noNewStreak = 0;
-        sendLog(
-          `Scroll ${scrolls}: +${newGained} → total ${results.size}`,
-          "success",
-        );
+        sendLog(`Scroll ${scrolls}: +${newGained} → total ${results.size}`, "success");
+        stalledPasses = 0;
+      } else if (!moved && !loadedMore) {
+        stalledPasses++;
+        sendLog(`Waiting for more results (${stalledPasses}/6)...`, "");
       } else {
-        noNewStreak++;
-        sendLog(`Scroll ${scrolls}`, "");
+        stalledPasses = 0;
       }
 
-      const cur = scrollEl.scrollTop || window.scrollY;
-      if (scrolls > 3 && cur === prevScrollTop) {
-        sendLog("End of list detected.", "warn");
-        break;
+      if (atBottom && !loadedMore) {
+        bottomPasses++;
+        sendLog(`At end of loaded results (${bottomPasses}/6)...`, "");
+      } else {
+        bottomPasses = 0;
       }
-      prevScrollTop = cur;
-      if (noNewStreak >= 100) {
-        sendLog("No new results. Done.", "warn");
+
+      // Some result sets load another page only after a short pause at the end.
+      if (atBottom && bottomPasses > 0 && bottomPasses < 6) {
+        activeScroller.scrollTop = activeScroller.scrollHeight;
+        await delay(1200);
+      }
+
+      if (bottomPasses >= 6 || stalledPasses >= 6 || (atBottom && target === before && !loadedMore && bottomPasses >= 2)) {
+        sendLog("Results feed reached its end; finishing scrape.", "success");
         break;
       }
     }
 
     await extractAll();
     const data = Array.from(results.values());
-    sendLog(`Complete! ${data.length} records with full details.`, "success");
+    sendLog(`Complete! ${data.length} visible business listings extracted.`, "success");
 
     // ── Clear scrape state, save final results ─────────────────────────────
     try {
       chrome.storage.local.set({
         gmapResults: data,
-        gmapScrapeState: { scraping: false, found: data.length, scrolls },
+        gmapScrapeState: { scraping: false, found: data.length, scrolls, tabId: scrapeTabId },
       });
     } catch (e) {}
     try {
@@ -422,8 +365,10 @@
         return true;
       }
       results = new Map();
+      processedLinks.clear();
       scrolls = 0;
       running = true;
+      scrapeTabId = sender.tab?.id ?? null;
       window.__gmapScrapActive = true;
       window.__gmapScrapStartedAt = Date.now();
       // Save start state immediately
@@ -432,6 +377,7 @@
           scraping: true,
           found: 0,
           scrolls: 0,
+          tabId: scrapeTabId,
           startedAt: Date.now(),
         },
         gmapResults: [],
@@ -445,7 +391,7 @@
       const data = Array.from(results.values());
       chrome.storage.local.set({
         gmapResults: data,
-        gmapScrapeState: { scraping: false, found: data.length, scrolls },
+        gmapScrapeState: { scraping: false, found: data.length, scrolls, tabId: scrapeTabId },
       });
       try {
         chrome.runtime.sendMessage({ type: "DONE", data, scrolls });
