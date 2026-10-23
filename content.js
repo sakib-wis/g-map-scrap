@@ -80,6 +80,7 @@
 
     const pinMatch = address.match(/\b(\d{6})\b/);
     if (pinMatch) pincode = pinMatch[1];
+    if (/\bIndia\b/i.test(address)) country = "India";
 
     const states = [
       "Andhra Pradesh",
@@ -123,6 +124,7 @@
         break;
       }
     }
+    if (!country && (state || pincode)) country = "India";
 
     const parts = address
       .split(",")
@@ -135,6 +137,7 @@
           p &&
           !/^\d+$/.test(p) &&
           p.toLowerCase() !== state.toLowerCase() &&
+          p.toLowerCase() !== country.toLowerCase() &&
           !/\d{6}/.test(p) &&
           p.length > 2 &&
           p.length < 40
@@ -204,9 +207,13 @@
       : "";
     const hours = hoursLine.replace(phoneMatch?.[0] || "", "").replace(/[·,\s]+$/, "").trim();
     const { city, state, pincode, country } = parseAddress(address);
+    const nameParts = name.trim().split(/\s+/);
+    const firstName = nameParts.shift() || "";
 
     return {
       name,
+      fn: firstName,
+      ln: nameParts.join(" "),
       category,
       rating: ratingMatch?.[1] || "",
       reviews: ratingMatch?.[2] || "",

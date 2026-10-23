@@ -29,6 +29,12 @@
 
 ## Data Extracted
 
+Excel and CSV exports use the same 19 columns, in this exact order:
+
+`email`, `email`, `email`, `phone`, `phone`, `phone`, `madid`, `fn`, `ln`, `zip`, `ct`, `st`, `country`, `dob`, `doby`, `gen`, `age`, `uid`, `value`
+
+Business phone is placed in the first `phone` column; the other two phone columns and the email columns are left blank. `fn` and `ln` contain the business name split at its first space. `zip`, `ct`, `st`, and `country` are populated from the address when available. Fields not currently collected (`madid`, `dob`, `doby`, `gen`, `age`, `uid`, and `value`) are left blank.
+
 | Field       | Description                     |
 |-------------|---------------------------------|
 | Name        | Business name                   |

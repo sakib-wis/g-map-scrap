@@ -287,20 +287,52 @@ btnLogClear.addEventListener("click", () => {
 
 // ── Export definitions ─────────────────────────────────
 const COLUMNS = [
-  { key: "name", label: "Name" },
-  { key: "category", label: "Category" },
-  { key: "rating", label: "Rating" },
-  { key: "reviews", label: "Reviews" },
-  { key: "status", label: "Status" },
-  { key: "phone", label: "Phone" },
-  { key: "address", label: "Location / address snippet" },
-  { key: "city", label: "City" },
-  { key: "state", label: "State" },
-  { key: "pincode", label: "Postal code" },
-  { key: "country", label: "Country" },
-  { key: "hours", label: "Hours" },
-  { key: "url", label: "Google Maps URL" },
+  { key: "email", label: "email" },
+  { key: "email2", label: "email" },
+  { key: "email3", label: "email" },
+  { key: "phone", label: "phone" },
+  { key: "phone2", label: "phone" },
+  { key: "phone3", label: "phone" },
+  { key: "madid", label: "madid" },
+  { key: "fn", label: "fn" },
+  { key: "ln", label: "ln" },
+  { key: "pincode", label: "zip" },
+  { key: "city", label: "ct" },
+  { key: "state", label: "st" },
+  { key: "country", label: "country" },
+  { key: "dob", label: "dob" },
+  { key: "doby", label: "doby" },
+  { key: "gen", label: "gen" },
+  { key: "age", label: "age" },
+  { key: "uid", label: "uid" },
+  { key: "value", label: "value" },
 ];
+
+function getExportValue(row, key) {
+  if (key === "fn" || key === "ln") {
+    if (row[key]) return row[key];
+    const nameParts = String(row.name || "").trim().split(/\s+/);
+    return key === "fn" ? nameParts.shift() || "" : nameParts.slice(1).join(" ");
+  }
+  if (key === "city" && (!row.city || /^india$/i.test(row.city))) {
+    const addressParts = String(row.address || "").split(",").map((part) => part.trim());
+    for (let i = addressParts.length - 1; i >= 0; i--) {
+      const part = addressParts[i];
+      if (
+        part &&
+        part.toLowerCase() !== String(row.state || "").toLowerCase() &&
+        !/^india$/i.test(part) &&
+        !/\d{6}/.test(part) &&
+        part.length > 2 &&
+        part.length < 40
+      ) {
+        return part;
+      }
+    }
+  }
+  if (key === "country") return row.country || (row.state || row.pincode ? "India" : "");
+  return row[key] ?? "";
+}
 
 // ── CSV Export ─────────────────────────────────────────
 function escapeCsv(v) {
@@ -315,7 +347,7 @@ btnCsv.addEventListener("click", () => {
   if (!results.length) return;
   const headers = COLUMNS.map((c) => c.label).join(",");
   const rows = results.map((r) =>
-    COLUMNS.map((c) => escapeCsv(r[c.key])).join(","),
+    COLUMNS.map((c) => escapeCsv(getExportValue(r, c.key))).join(","),
   );
   const csv = "\uFEFF" + [headers, ...rows].join("\n");
   const a = Object.assign(document.createElement("a"), {
@@ -408,7 +440,10 @@ btnExcel.addEventListener("click", () => {
     <Interior ss:Color="#FEE2E2" ss:Pattern="Solid"/>
   </Style>`;
 
-  const colWidths = [180, 140, 65, 80, 110, 120, 240, 110, 110, 90, 90, 200, 260];
+  const colWidths = [
+    160, 160, 160, 120, 120, 120, 140, 140, 180, 90,
+    140, 140, 100, 100, 100, 100, 100, 120, 140,
+  ];
   const colDefs = colWidths.map((w) => `<Column ss:Width="${w}"/>`).join("");
 
   const headerRow = `<Row ss:Height="22">
@@ -420,7 +455,7 @@ btnExcel.addEventListener("click", () => {
       const isEven = i % 2 === 1;
       const base = isEven ? "rowEven" : "rowOdd";
       const cells = COLUMNS.map((c) => {
-        const val = r[c.key] || "";
+        const val = getExportValue(r, c.key);
         if (c.key === "rating" && val)
           return `<Cell ss:StyleID="${isEven ? "ratingEven" : "rating"}"><Data ss:Type="String">★ ${esc(val)}</Data></Cell>`;
         if (c.key === "status") {
